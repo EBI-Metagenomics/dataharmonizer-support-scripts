@@ -2,30 +2,17 @@
 # -*- coding: utf-8 -*-
 
 """
-script to create the export.js and schema.yaml file for DataHarmonizer to generate generate templates in DataHarmonizer
+script to create the export.js and schema.yaml file for DataHarmonizer to generate templates in DataHarmonizer
 """
-import re
-import os
-import glob
-from functools import reduce
 import argparse
-from collections import OrderedDict, Counter
 import sys
-import numpy as np
 import pandas as pd
 import requests
-import time
-from io import StringIO
-import csv
-import random
-import subprocess
 import yaml
-import warnings
 from pathlib import Path
-import json
 
-#coordinates (long, lat) of 18 mouse facilities
-#center_code: ["institute-facility", "microbial_status", lat, long] - revise with actual codes and coords from the 18 established mouse facilities.
+# coordinates (long, lat) of 18 mouse facilities
+# center_code: ["institute-facility", "microbial_status", lat, long] - revise with actual codes and coords from the 18 established mouse facilities.
 facility_coords = {
     "MLC": ["MRC Harwell-Mary Lyons Centre", "SPF", 51.5757261889298, -1.3197682153434656], #Mary Lyons Center (OXF)
     "FCI": ["Francis Crick Institute-aimal facility", "SPF", 51.531641682446555, -0.12872668895589073], #
@@ -40,7 +27,7 @@ facility_coords = {
 }
 
 #    
-schemaDict = {
+schema_dict = {
     "id": "https://nmgn.mrc.ukri.org/clusters/microbiome/",
     "name": "NMGN",
     "description": "A description of the schema containing one or more templates.",
@@ -66,11 +53,11 @@ schemaDict = {
             "is_a": "dh_interface",
             "see_also": "templates/NMGN/SOP.pdf",
             "slots": 
-                [], #lists name of all metadata fields. Inherit from field_name
-            "slot_usage": {} #read field_name as key and index+1 as rank, and category as slot_group
+                [],  # lists name of all metadata fields. Inherit from field_name
+            "slot_usage": {}  # read field_name as key and index+1 as rank, and category as slot_group
         } 
-    }, #end of 
-    "slots": {}, #reads in information about each field (slot), each field has a different sub dictionary of name, title, description, comments, example 
+    },  # end of 
+    "slots": {},  # reads in information about each field (slot), each field has a different sub dictionary of name, title, description, comments, example 
     "enums": {
         "null value menu": {
             "name": "null value menu",
@@ -118,7 +105,7 @@ schemaDict = {
             "name": "Permitted_Facilities_menu",
             "title": "Permitted_Facilities_menu",
             "description": "A list of institutes-facilities (18) used by the NMGN microbiome cluster for mouse studies",
-            "permissible_values":{ #TO UPDATE: list of 18 SPF facilities used by the NMGN.
+            "permissible_values":{  # TO UPDATE: list of 18 SPF facilities used by the NMGN.
                 "MRC Harwell-Mary Lyons Centre":{"text": "MRC Harwell-Mary Lyons Centre"},
                 "Francis Crick Institute-aimal facility":{"text":"Francis Crick Institute-aimal facility"},
                 "Wellcome Sanger Institute-animal facility":{"text": "Wellcome Sanger Institute-animal facility"},
@@ -168,15 +155,15 @@ schemaDict = {
             "name": "tax_id_menu",
             "title": "tax_id_menu",
             "description": "Taxonomic identification of the organism(s) collected as in the NCBI Taxonomy database",
-            "permissible_values": { # reflect mouse gut metagenome etc when going through the permissible values
-                '410661' : {"text": "410661", "meaning": 'NCBITaxon:410661' #mouse gut metagenome
+            "permissible_values": {  # reflect mouse gut metagenome etc when going through the permissible values
+                '410661' : {"text": "410661", "meaning": 'NCBITaxon:410661'  # mouse gut metagenome
                             },
-                '1441287' : {"text": "1441287", "meaning":'NCBITaxon:1441287' #mouse metagenome
+                '1441287' : {"text": "1441287", "meaning":'NCBITaxon:1441287'  # mouse metagenome
                              }
                 }
             },
         
-    }, # end of enums section
+    },  # end of enums section
     "types": {
         "WhitespaceMinimizedString": {
             "name": "WhitespaceMinimizedString",
@@ -192,74 +179,68 @@ schemaDict = {
             "base": "str",
             "uri": "xsd:token"
         }
-    }, #end of enums dict
+    },  # end of enums dict
     "settings": {
-        "Title_Case": "(((?<=\b)[^a-z\W]\w*?|[\W])+)",
-        "UPPER_CASE": "[A-Z\W\d_]*",
-        "lower_case": "[a-z\W\d_]*"
-    } #additional settings
+        "Title_Case": r"(((?<=\b)[^a-z\W]\w*?|[\W])+)",
+        "UPPER_CASE": r"[A-Z\W\d_]*",
+        "lower_case": r"[a-z\W\d_]*"
+    }  # additional settings
 }
 
 
-#reads metadata into the existing schemaDict to create a schema.yaml file
+# reads metadata into the existing schemaDict to create a schema.yaml file
 def metadata2dict(metadata_file, schemadict):
-    
-    
+        
     required_dict = {"mandatory": True,
                      "optional": False,
                      "recommended": False}
     
-    metadata_df = pd.read_csv(metadata_file, delimiter="\t", na_values="na", keep_default_na="na", encoding='ISO-8859-1')
+    metadata_df = pd.read_csv(metadata_file, delimiter="\t", na_values="na", keep_default_na=False, encoding='ISO-8859-1')
 
-    #assign field_names to schemadict['classes']['NMGN']['slots'] as list
+    # assign field_names to schemadict['classes']['NMGN']['slots'] as list
     schemadict['classes']['NMGN_microbiome']['slots'] = list(metadata_df['field_name'])#[:3]
     
+    for i,(idx,row) in enumerate(metadata_df.iterrows()):
     
-    for i, (category, name, range_option, requirement, description, comment, example, uri, exact_maps) in enumerate(zip(list(metadata_df['category']), list(metadata_df['field_name']),list(metadata_df['range_options']), list(metadata_df['requirement']), list(metadata_df['description']), list(metadata_df['comments']), list(metadata_df['examples']), list(metadata_df['field_uri']), list(metadata_df['exact_mappings']))):    
-    
-        #read field_name as key and index+1 as rank, and category as slot_group
+        # read field_name as key and index+1 as rank, and category as slot_group
         rank = i+1
 
-        #maps to the corresponding field for the template in export.js
-        exact_mappings = exact_maps.split(";")
-        
-        #replace spaces with %20
-        exact_mappings = [field.replace(" ", "%20") for field in exact_mappings]
-        
+        # maps to the corresponding field for the template in export.js
+        # replace spaces with %20
+        exact_mappings = [field.replace(" ", "%20") for field in row.exact_mappings.split(";")] if row.exact_mappings else ''
         # print (exact_mappings[0].split(":")[-1])
         
+        schemadict['classes']['NMGN_microbiome']['slot_usage'][row.field_name] = {'rank' : rank, 'slot_group': row.category}
         
-        schemadict['classes']['NMGN_microbiome']['slot_usage'][name] = {'rank' : rank, 'slot_group' :category}
-        
-        schemadict['slots'][name] = {
-            "name" : name, #name and title are the same
-            "title": name,
-            "description": description,
-            "comments": (comment), #guidance
-            "examples": [{"value" : example}],
-            "slot_uri": uri,
+        schemadict['slots'][row.field_name] = {
+            "name" : row.field_name,  # name and title are the same
+            "title": row.field_name,
+            "description": row.description,
+            "comments": (row.comments),  # guidance
+            "examples": [{"value" : row.examples}],
+            "slot_uri": row.field_uri,
             "range": "WhitespaceMinimizedString",
             # "required": required,
             # "recommended": recommended,
-            "exact_mappings": exact_mappings, #need to find the correct URI or CURIE for ENA sample registration (ENA_sample_registration:sample collection method is not a valid URI or CURIE)
+            "exact_mappings": exact_mappings,  # need to find the correct URI or CURIE for ENA sample registration (ENA_sample_registration:sample collection method is not a valid URI or CURIE)
             # "structured_pattern": {} #for controlled text - "structured_pattern": {"syntax": "{UPPER_CASE}", "partial_match": False, "interpolated": True}
             }
         
-        #add mandatory or recommended options
-        if requirement == "mandatory":
-            schemadict['slots'][name]["required"] = True
+        # add mandatory or recommended options
+        if row.requirement == "mandatory":
+            schemadict['slots'][row.field_name]["required"] = True
         
-        elif requirement == "optional":
-            schemadict['slots'][name]["recommended"] = True
+        elif row.requirement == "optional":
+            schemadict['slots'][row.field_name]["recommended"] = True
 
         else:
-            schemadict['slots'][name]["required"] = False
+            schemadict['slots'][row.field_name]["required"] = False
         
-        #if range_option is not null, add to range
-        if str(range_option) != 'nan':
-            schemadict['slots'][name]["range"] = range_option #Menu selection (under columns)
+        # if range_option is not null, add to range
+        if str(row.range_options) != 'nan':
+            schemadict['slots'][row.field_name]["range"] = row.range_options  # Menu selection (under columns)
             
-            schemadict['slots'][name]["range"] = range_option #Menu selection (under columns)
+            schemadict['slots'][row.field_name]["range"] = row.range_options  # Menu selection (under columns)
             
 
             # if ';' in range_option: ´#option to add any_of does not work yet. Need to fix
@@ -272,17 +253,17 @@ def metadata2dict(metadata_file, schemadict):
         
     return schemadict
 
-#parse metadata dict into yaml format
+# parse metadata dict into yaml format
 def dict2yaml(schema_dict, yaml_filepath):
 
     with open(yaml_filepath, 'w') as file:
-        yaml.dump(schemaDict, file, default_flow_style=False, sort_keys=False)    
+        yaml.dump(schema_dict, file, default_flow_style=False, sort_keys=False)    
 
     # print (yaml_filepath)
 
     return ""
 
-#get ontology from country name
+# get ontology from country name
 def get_onto_from_name(country):
 
     # Define the API URL
@@ -294,27 +275,27 @@ def get_onto_from_name(country):
     # Parse the response JSON into a Python dictionary
     angola_ontology = response.json()
     
-    #get the GAZ ID
+    # get the GAZ ID
     GAZ_ID = angola_ontology['response']['docs'][-1]['obo_id']
     
-    #print (country, GAZ_ID)
+    # print (country, GAZ_ID)
 
     return GAZ_ID
 
-#read variables from metadata file and read into Dicts for creating export.js file
+# read variables from metadata file and read into Dicts for creating export.js file
 def metadata2jsDict(metadata_file):
 
-    metadata_df = pd.read_csv(metadata_file, delimiter="\t", na_values="", keep_default_na="na", encoding='ISO-8859-1')
+    metadata_df = pd.read_csv(metadata_file, delimiter="\t", na_values="", keep_default_na=False, encoding='ISO-8859-1')
 
-    #read metadata to dict
+    # read metadata to dict
     headers_dict = {field: [] for field in metadata_df['field_name']}
 
     unitsDict = metadata_df.set_index('field_name')['units'].to_dict() 
 
-    #reformat unitsDict
+    # reformat unitsDict
     unitsDict = {k: [v] if isinstance(v, (str, list, tuple, set, dict)) and len(v) > 0 else [] for k, v in unitsDict.items()}
 
-    #print (unitsDict)
+    # print(unitsDict)
 
     return headers_dict, unitsDict
 
@@ -416,7 +397,7 @@ def generate_json(headersDict, unitsDict, export_js_file):
 
     return ""
 
-def main():
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog = "dataharmonizer-support",
         usage = "dataharmonizer-support.py --input_tsv <input_tsv_file> --result_directory <result_directory>",
@@ -444,39 +425,27 @@ epilog = "The export.js and schema.yaml files generated by dataharmonizer-suppor
 
     args = parser.parse_args()
 
-    #assign variables
+    # assign variables
     input_tsv = args.input_tsv
-    result_directory = args.result_directory
+    result_directory = Path(args.result_directory)
 
     
-    result_schema_file = os.path.join(result_directory, "schema.yaml") #result yaml file
-    result_export_file = os.path.join(result_directory, "export.js")
+    result_schema_file = result_directory / "schema.yaml"  # result yaml file
+    result_export_file = result_directory / "export.js"
 
-    country_genpio_file = os.path.join("metadata_files", "countries_gaz2.tsv")
+    country_genpio_file = Path("metadata_files") / "countries_gaz.tsv"
 
 
-    #read country_genpio file into dict - schemaDict['enums']['Permitted_countries']
-    country_dict = pd.read_csv(country_genpio_file, delimiter="\t", na_values="na", keep_default_na="na", encoding='ISO-8859-1').set_index('Country')['GENPIO'].to_dict()
-    schemaDict['enums']['Permitted_countries_menu']['permissible_values'] = {country:{'text':country} for country in country_dict}
+    # read country_genpio file into dict - schema_dict['enums']['Permitted_countries']
+    country_dict = pd.read_csv(country_genpio_file, delimiter="\t", na_values="na", keep_default_na=False, encoding='ISO-8859-1').set_index('Country')['GENPIO'].to_dict()
+    schema_dict['enums']['Permitted_countries_menu']['permissible_values'] = {country:{'text':country} for country in country_dict}
 
-    #read metadatafile and update schemaDict2
-    schemaDict2 = metadata2dict(input_tsv, schemaDict)
+    # read metadatafile and update schema_dict
+    updated_schema_dict = metadata2dict(input_tsv, schema_dict)
 
-    #convert schemaDict2 into schema.yaml file
-    dict2yaml(schemaDict2, result_schema_file)
+    # convert schema_dict into schema.yaml file
+    dict2yaml(updated_schema_dict, result_schema_file)
 
-    #convert jsDict and generate export.js file
+    # convert jsDict and generate export.js file
     header_dict, unitsDict = metadata2jsDict(input_tsv)
     generate_json(header_dict, unitsDict, result_export_file)
-
-
-if __name__ == "__main__":
-    main()
-    
-
-
-    
-
-
-
-
